@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("Contact Center Resource Planning Dashboard")
+st.title("Mukuru Contact Center Resource Planning Dashboard")
 st.markdown("This dashboard showcases a comprehensive analysis of contact center data, including **forecasting**, **simulation**, and strategic **planning**.")
 
 # --- Helper Functions ---
@@ -47,11 +47,11 @@ def perform_forecasting(df):
 
 def calculate_required_agents(calls, aht, shrinkage):
     erlangs = (calls * aht) / 3600
-    agents_needed_raw = erlangs + (np.sqrt(erlangs) * (1 - 0.80)) # SLA is hardcoded for simplicity
+    agents_needed_raw = erlangs + (np.sqrt(erlangs) * (1 - 0.80))
     agents_needed_with_shrinkage = agents_needed_raw / (1 - shrinkage)
     return np.ceil(agents_needed_with_shrinkage)
 
-def simulate_spike_by_number(forecast_df, start_date_str, spike_increase_calls, spike_duration_days):
+def simulate_spike_by_number(forecast_df, start_date_str, spike_increase_calls, spike_duration_days, shrinkage):
     spiked_df = forecast_df.copy()
     start_date = pd.to_datetime(start_date_str)
     end_date = start_date + pd.Timedelta(days=spike_duration_days)
@@ -60,6 +60,7 @@ def simulate_spike_by_number(forecast_df, start_date_str, spike_increase_calls, 
         st.warning("The spike date range is outside the forecast period.")
         return spiked_df
     spiked_df.loc[spike_mask, 'forecasted_calls'] = (spiked_df.loc[spike_mask, 'forecasted_calls'] + spike_increase_calls).astype(int)
+    spiked_df['required_agents'] = calculate_required_agents(spiked_df['forecasted_calls'], spiked_df['forecasted_aht'], shrinkage)
     return spiked_df
 
 def generate_insights(df_original, df_simulated=None, spike_increase_calls=None, spike_start=None, spike_duration=None):
@@ -90,13 +91,11 @@ df = generate_data()
 # --- Section 1: Exploratory Data Analysis (EDA) ---
 st.header("1. Exploratory Data Analysis (EDA)")
 st.write("A deep dive into the historical data to understand key patterns and metrics.")
-
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Descriptive Statistics")
     st.write(df['calls_received'].describe().to_frame().T)
     st.write(df['aht_seconds'].describe().to_frame().T)
-
 with col2:
     st.subheader("Data Distribution")
     fig_dist = make_subplots(rows=1, cols=2, subplot_titles=("Distribution of Calls Received", "Distribution of AHT"))
@@ -104,7 +103,6 @@ with col2:
     fig_dist.add_trace(go.Histogram(x=df['aht_seconds'], name='AHT'), row=1, col=2)
     fig_dist.update_layout(height=400, showlegend=False)
     st.plotly_chart(fig_dist, use_container_width=True)
-
 st.subheader("Time Series Decomposition")
 decomposition_calls = seasonal_decompose(df['calls_received'], model='additive', period=24*7)
 fig_decomp = make_subplots(rows=4, cols=1, shared_xaxes=True, subplot_titles=("Original Calls", "Trend", "Weekly Seasonality", "Residuals"))
@@ -114,7 +112,6 @@ fig_decomp.add_trace(go.Scatter(x=df['timestamp'], y=decomposition_calls.seasona
 fig_decomp.add_trace(go.Scatter(x=df['timestamp'], y=decomposition_calls.resid, name='Residuals'), row=4, col=1)
 fig_decomp.update_layout(height=800, title_text="Time Series Decomposition of Calls Received")
 st.plotly_chart(fig_decomp, use_container_width=True)
-
 st.subheader("Seasonality Analysis")
 df['hour'] = df['timestamp'].dt.hour
 df['day_of_week'] = df['timestamp'].dt.day_name()
@@ -154,11 +151,15 @@ st.markdown("Use the controls in the sidebar to define the simulation event.")
 
 with st.sidebar:
     st.header("Simulation Parameters")
-    spike_start = st.date_input("Spike Start Date", pd.to_datetime(original_forecast_df['timestamp'].iloc[60]))
+    # Corrected default value for spike_start
+    min_date = original_forecast_df['timestamp'].iloc[0].date()
+    max_date = original_forecast_df['timestamp'].iloc[-1].date()
+    spike_start = st.date_input("Spike Start Date", min_value=min_date, max_value=max_date, value=min_date)
     spike_increase_calls = st.number_input("Extra Calls per Hour", min_value=0, max_value=200, value=50, step=10)
     spike_duration = st.slider("Spike Duration (days)", 1, 30, 7)
 
-spiked_forecast_df = simulate_spike_by_number(original_forecast_df, str(spike_start), spike_increase_calls, spike_duration)
+# CORRECTED: The simulation is now properly re-run with dynamic parameters
+spiked_forecast_df = simulate_spike_by_number(original_forecast_df, str(spike_start), spike_increase_calls, spike_duration, shrinkage=0.3)
 
 fig_spike = go.Figure()
 fig_spike.add_trace(go.Scatter(x=original_forecast_df['timestamp'], y=original_forecast_df['required_agents'], mode='lines', name='Original Forecast'))
