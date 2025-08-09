@@ -13,7 +13,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("Mukuru Contact Center Resource Planning Dashboard")
+st.title("Contact Center Resource Planning Dashboard")
 st.markdown("This dashboard showcases a comprehensive analysis of contact center data, including **forecasting**, **simulation**, and strategic **planning**.")
 
 # --- Helper Functions ---
