@@ -8,12 +8,12 @@ from statsmodels.tsa.api import ExponentialSmoothing
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="Mukuru Contact Center Analysis",
+    page_title="Contact Center Resource Planning Analysis",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-st.title("Mukuru Contact Center Resource Planning Dashboard 📊")
+st.title("Mukuru Contact Center Resource Planning Dashboard")
 st.markdown("This dashboard showcases a comprehensive analysis of contact center data, including **forecasting**, **simulation**, and strategic **planning**.")
 
 # --- Helper Functions ---
