@@ -45,7 +45,7 @@ def perform_forecasting(df):
     forecast_df = pd.DataFrame({'timestamp': forecast_dates, 'forecasted_calls': np.maximum(0, forecast_calls).astype(int), 'forecasted_aht': np.maximum(100, forecast_aht).astype(int)})
     return forecast_df
 
-def calculate_required_agents(calls, aht, shrinkage=0.3):
+def calculate_required_agents(calls, aht, shrinkage):
     erlangs = (calls * aht) / 3600
     agents_needed_raw = erlangs + (np.sqrt(erlangs) * (1 - 0.80))
     agents_needed_with_shrinkage = agents_needed_raw / (1 - shrinkage)
@@ -57,13 +57,11 @@ df = generate_data()
 # --- Section 1: Exploratory Data Analysis (EDA) ---
 st.header("1. Exploratory Data Analysis (EDA)")
 st.write("A deep dive into the historical data to understand key patterns and metrics.")
-
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Descriptive Statistics")
     st.write(df['calls_received'].describe().to_frame().T)
     st.write(df['aht_seconds'].describe().to_frame().T)
-
 with col2:
     st.subheader("Data Distribution")
     fig_dist = make_subplots(rows=1, cols=2, subplot_titles=("Distribution of Calls Received", "Distribution of AHT"))
@@ -71,7 +69,6 @@ with col2:
     fig_dist.add_trace(go.Histogram(x=df['aht_seconds'], name='AHT'), row=1, col=2)
     fig_dist.update_layout(height=400, showlegend=False)
     st.plotly_chart(fig_dist, use_container_width=True)
-
 st.subheader("Time Series Decomposition")
 decomposition_calls = seasonal_decompose(df['calls_received'], model='additive', period=24*7)
 fig_decomp = make_subplots(rows=4, cols=1, shared_xaxes=True, subplot_titles=("Original Calls", "Trend", "Weekly Seasonality", "Residuals"))
@@ -81,7 +78,6 @@ fig_decomp.add_trace(go.Scatter(x=df['timestamp'], y=decomposition_calls.seasona
 fig_decomp.add_trace(go.Scatter(x=df['timestamp'], y=decomposition_calls.resid, name='Residuals'), row=4, col=1)
 fig_decomp.update_layout(height=800, title_text="Time Series Decomposition of Calls Received")
 st.plotly_chart(fig_decomp, use_container_width=True)
-
 st.subheader("Seasonality Analysis")
 df['hour'] = df['timestamp'].dt.hour
 df['day_of_week'] = df['timestamp'].dt.day_name()
@@ -108,9 +104,6 @@ fig_forecast.add_trace(go.Scatter(x=forecast_df['timestamp'], y=forecast_df['for
 fig_forecast.update_layout(height=600, title_text="Contact Center Forecasts")
 st.plotly_chart(fig_forecast, use_container_width=True)
 
-original_forecast_df = forecast_df.copy()
-original_forecast_df['required_agents'] = calculate_required_agents(original_forecast_df['forecasted_calls'], original_forecast_df['forecasted_aht'])
-
 st.markdown("---")
 
 # --- Section 3: Interactive Spike Simulation ---
@@ -120,13 +113,16 @@ st.markdown("Use the controls in the sidebar to define the simulation event.")
 
 with st.sidebar:
     st.header("Simulation Parameters")
-    min_date = original_forecast_df['timestamp'].iloc[0].date()
-    max_date = original_forecast_df['timestamp'].iloc[-1].date()
+    min_date = forecast_df['timestamp'].iloc[0].date()
+    max_date = forecast_df['timestamp'].iloc[-1].date()
     spike_start = st.date_input("Spike Start Date", min_value=min_date, max_value=max_date, value=min_date)
     spike_increase_calls = st.number_input("Extra Calls per Hour", min_value=0, max_value=500, value=50, step=10)
     spike_duration = st.slider("Spike Duration (days)", 1, 30, 7)
+    shrinkage_input = st.slider("Shrinkage (%)", 0, 50, 30, 5) / 100.0
+    
+original_forecast_df = forecast_df.copy()
+original_forecast_df['required_agents'] = calculate_required_agents(original_forecast_df['forecasted_calls'], original_forecast_df['forecasted_aht'], shrinkage=shrinkage_input)
 
-# CORRECTED: The simulation logic is now correctly placed to ensure it runs whenever a widget changes.
 spiked_forecast_df = original_forecast_df.copy()
 spike_start_ts = pd.to_datetime(spike_start)
 spike_end_ts = spike_start_ts + pd.Timedelta(days=spike_duration)
@@ -137,11 +133,10 @@ if spike_mask.any():
     spiked_forecast_df.loc[spike_mask, 'forecasted_calls'] = (
         spiked_forecast_df.loc[spike_mask, 'forecasted_calls'] + spike_increase_calls
     ).astype(int)
-    
-    # Recalculate the agents for the entire dataframe after the spike
     spiked_forecast_df['required_agents'] = calculate_required_agents(
         spiked_forecast_df['forecasted_calls'], 
-        spiked_forecast_df['forecasted_aht']
+        spiked_forecast_df['forecasted_aht'],
+        shrinkage=shrinkage_input
     )
 else:
     st.warning("The selected spike date range is outside the forecast period.")
@@ -157,15 +152,15 @@ st.markdown("---")
 # --- Section 4: Dynamic Insights and Recommendations ---
 st.header("4. Strategic Insights & Recommendations")
 st.write("Based on the analysis and simulation, here are the key insights and actionable recommendations.")
-# This function is now guaranteed to receive the updated dataframes
-def generate_insights(df_original, df_simulated=None, spike_increase_calls=None, spike_start=None, spike_duration=None):
+def generate_insights(df_original, df_simulated=None, spike_increase_calls=None, spike_start=None, spike_duration=None, shrinkage=None):
     peak_agents_original = df_original['required_agents'].max()
     peak_date_original = df_original.loc[df_original['required_agents'].idxmax(), 'timestamp'].strftime('%Y-%m-%d')
     avg_agents_original = df_original['required_agents'].mean()
     insights = f"""
     ### Core Forecasting Insights
     - **Baseline Staffing:** The forecast suggests a baseline staffing need of approximately **{int(avg_agents_original)}** agents to meet service levels.
-    - **Peak Demand:** The highest demand is projected to be around **{int(peak_agents_original)}** agents, occurring on or near **{peak_date_original}**. This is a critical period that requires careful attention to scheduling and adherence.
+    - **Peak Demand:** The highest demand is projected to be around **{int(peak_agents_original)}** agents, occurring on or near **{peak_date_original}**.
+    - **Assumed Shrinkage:** The staffing calculations are based on a shrinkage rate of **{int(shrinkage * 100)}%**.
     """
     if df_simulated is not None and not df_simulated.equals(df_original):
         peak_agents_spiked = df_simulated['required_agents'].max()
@@ -181,5 +176,15 @@ def generate_insights(df_original, df_simulated=None, spike_increase_calls=None,
     """
     return insights
 
-insights_text = generate_insights(original_forecast_df, spiked_forecast_df, spike_increase_calls, str(spike_start), spike_duration)
+insights_text = generate_insights(original_forecast_df, spiked_forecast_df, spike_increase_calls, str(spike_start), spike_duration, shrinkage=shrinkage_input)
 st.markdown(insights_text)
+
+# --- Footer ---
+st.markdown("---")
+st.markdown("""
+    <p style='text-align: center;'>
+    Developed by Andiswa Mabuza | 
+    <a href='mailto:Amabuza53@gmail.com'>Email</a> | 
+    <a href='https://andiswamabuza.vercel.app' target='_blank'>Developer Site</a>
+    </p>
+    """, unsafe_allow_html=True)
